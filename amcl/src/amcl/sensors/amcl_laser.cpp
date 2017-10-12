@@ -32,6 +32,10 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
+#include <iostream>
+
+#include <Eigen/Core>
+#include <Eigen/Dense>
 
 #include "amcl_laser.h"
 
@@ -84,13 +88,14 @@ void
 AMCLLaser::SetModelLikelihoodField(double z_hit,
                                    double z_rand,
                                    double sigma_hit,
-                                   double max_occ_dist)
+                                   double max_occ_dist/* ,
+                                   std::vector<double> sigma_hit_vec */)
 {
   this->model_type = LASER_MODEL_LIKELIHOOD_FIELD;
   this->z_hit = z_hit;
   this->z_rand = z_rand;
   this->sigma_hit = sigma_hit;
-
+  // this->sigma_hit_vector = sigma_hit_vec;
   map_update_cspace(this->map, max_occ_dist);
 }
 
@@ -225,6 +230,18 @@ double AMCLLaser::LikelihoodFieldModel(AMCLLaserData *data, pf_sample_set_t* set
   self = (AMCLLaser*) data->sensor;
 
   total_weight = 0.0;
+
+  Eigen::Matrix<double, 3, 3> cov;
+  for(int i=0;i<3;i++){
+    for(int j=0;j<3;j++){
+      cov(i,j) = set->cov.m[i][j];
+    }
+  }
+  Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 2, 2>> eigensolver(cov.topLeftCorner<2,2>(), false);
+  Eigen::MatrixXd eigenvalues = eigensolver.eigenvalues();
+  // std::cout << typeid(eigensolver.eigenvalues()).name() << std::endl;
+
+  // self->sigma_hit = eigenvalues.maxCoeff();
 
   // Compute the sample weights
   for (j = 0; j < set->sample_count; j++)

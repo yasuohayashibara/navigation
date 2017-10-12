@@ -14,9 +14,13 @@ find_package(catkin REQUIRED
             tf
             dynamic_reconfigure
             nav_msgs
+            cmake_modules
         )
 
 find_package(Boost REQUIRED)
+
+find_package(Eigen REQUIRED)
+add_definitions(${EIGEN_DEFINITIONS})
 
 # dynamic reconfigure
 generate_dynamic_reconfigure_options(
@@ -35,6 +39,7 @@ catkin_package(
 
 include_directories(include/amcl include/amcl/map include/amcl/sensors include/amcl/pf)
 include_directories(${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
+include_directories((  ${Eigen_INCLUDE_DIRS}))
 
 add_library(amcl_pf
                     src/amcl/pf/pf.c

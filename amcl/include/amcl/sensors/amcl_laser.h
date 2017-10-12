@@ -74,7 +74,8 @@ class AMCLLaser : public AMCLSensor
   public: void SetModelLikelihoodField(double z_hit,
                                        double z_rand,
                                        double sigma_hit,
-                                       double max_occ_dist);
+                                       double max_occ_dist/* ,
+                                       std::vector<double> sigma_hit_vec */);
 
   //a more probabilistically correct model - also with the option to do beam skipping
   public: void SetModelLikelihoodFieldProb(double z_hit,
@@ -144,6 +145,7 @@ class AMCLLaser : public AMCLSensor
   //
   // Stddev of Gaussian model for laser hits.
   private: double sigma_hit;
+  private: std::vector<double> sigma_hit_vector;
   // Decay rate of exponential model for short readings.
   private: double lambda_short;
   // Threshold for outlier rejection (unused)

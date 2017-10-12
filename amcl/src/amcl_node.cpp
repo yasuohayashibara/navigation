@@ -191,6 +191,7 @@ private:
 
   bool use_map_topic_;
   bool first_map_only_;
+  bool multi_mcl_;
 
   ros::Duration gui_publish_period;
   ros::Time save_pose_last_time;
@@ -403,6 +404,7 @@ AmclNode::AmclNode() : sent_first_transform_(false),
   // Grab params off the param server
   private_nh_.param("use_map_topic", use_map_topic_, false);
   private_nh_.param("first_map_only", first_map_only_, false);
+  private_nh_.param("use_multi_mcl", multi_mcl_, true);
 
   double tmp;
   pub_cnt_ = 0;
@@ -899,7 +901,7 @@ void AmclNode::requestMap()
   nav_msgs::GetMap::Request req;
   nav_msgs::GetMap::Response resp;
   ROS_INFO("Requesting the map...");
-  while (!ros::service::call("static_map", req, resp))
+  while (!ros::service::call("/static_map", req, resp))
   {
     ROS_WARN("Request for map failed; trying again...");
     ros::Duration d(0.5);
@@ -947,7 +949,7 @@ void AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid &msg)
         free_space_indices.push_back(std::make_pair(i, j));
 #endif
   // Create the particle filter
-  ROS_INFO("Added expansion resettings!");
+  if(do_reset_) ROS_INFO("Added expansion resettings!");
   /// ROS_INFO("do_reset: %d \n", (int)do_reset_);
   pf_vector_.clear();
   for(int i=0; i<pf_vector_size_; i++){
@@ -1336,6 +1338,8 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
 
   bool resampled = false;
   // If the robot has moved, update the filter
+
+  std::vector<int> idx;
   if (lasers_update_[laser_index])
   {
     AMCLLaserData ldata;
@@ -1399,10 +1403,72 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
                            (i * angle_increment);
     }
     
-    for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
-      lasers_[laser_index]->UpdateSensor(*itr, (AMCLSensorData *)&ldata);
+    if(multi_mcl_){
+      for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
+        lasers_[laser_index]->UpdateSensor(*itr, (AMCLSensorData *)&ldata);
+      }
     }
     lasers_[laser_index]->UpdateSensor(pf_, (AMCLSensorData *)&ldata);
+    
+    if(multi_mcl_){
+      auto start = std::chrono::system_clock::now();
+      std::vector<double> max_w_vec;
+      for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){ 
+        pf_sample_set_t *set;
+        set = (*itr)->sets + ((*itr)->current_set + 1) % 2;
+        std::vector<double> w_vec;
+        for(int i=0; i<set->sample_count; i++){
+          pf_sample_t *sample;
+          sample = set->samples + i;
+          w_vec.push_back(sample->weight);
+        }
+        max_w_vec.push_back((*itr)->w_sum) ;
+        std::cout << max_w_vec.size() << "," << (*itr)->w_sum << std::endl;
+        // std::cout << set->sample_count << "," << *std::max_element(w_vec.begin(), w_vec.end()) << std::endl;
+        // max_w_vec.push_back(*std::max_element(w_vec.begin(), w_vec.end()));
+      }
+      
+      const double sum = std::accumulate(max_w_vec.begin(), max_w_vec.end(), 0.0);
+      for(auto& i:max_w_vec){
+        i /= sum;
+      }
+      
+      idx = std::vector<int>(max_w_vec.size(), 0);
+      std::iota(idx.begin(), idx.end(), 0);
+
+      std::sort(
+        idx.begin(),
+        idx.end(),
+        [&](int x, int y){return max_w_vec[x] > max_w_vec[y];}
+      );
+
+      double w_cnt = 0.0;
+      std::vector<pf_t*> pf_vector_current;
+
+      for(int k=0; k<pf_vector_size_; k++){
+        if(w_cnt <= 0.8){
+          pf_vector_current.push_back(pf_vector_[idx[k]]);
+          for(int j=1; j<std::round(pf_vector_size_ * max_w_vec[idx[k]]); j++){
+            k++;
+            pf_vector_current.push_back(pf_vector_[idx[k]]);
+          }
+        }
+        else{
+          pf_vector_current.push_back(pf_vector_[idx[k]]);
+          pf_vector_current[k]->alpha = rand_alpha_(mt_);
+        }
+        w_cnt += max_w_vec[idx[k]];
+        ROS_INFO("%d, %lf, %d, %lf, %lf",k ,w_cnt, idx[k], max_w_vec[idx[k]], pf_vector_current[k]->alpha);
+      }
+      std::cout << std::endl; 
+      pf_vector_ = pf_vector_current;
+      auto d = std::chrono::system_clock::now() - start;
+    }
+
+    for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
+      pf_expansion_reset(*itr);
+    }
+    pf_expansion_reset(pf_);
 
     if (pf_->is_done_reset)
     {
@@ -1487,70 +1553,6 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
       particlecloud_pub_.publish(cloud_msg);
     }
   }
-  std::vector<int> idx;
-  if(resampled){
-    auto start = std::chrono::system_clock::now();
-    std::vector<double> max_w_vec;
-    for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){ 
-      pf_sample_set_t *set;
-      set = (*itr)->sets + ((*itr)->current_set + 1) % 2;
-      std::vector<double> w_vec;
-      for(int i=0; i<set->sample_count; i++){
-        pf_sample_t *sample;
-        sample = set->samples + i;
-        w_vec.push_back(sample->weight);
-      }
-      max_w_vec.push_back((*itr)->w_sum) ;
-      std::cout << max_w_vec.size() << "," << (*itr)->w_sum << std::endl;
-      std::cout << set->sample_count << "," << *std::max_element(w_vec.begin(), w_vec.end()) << std::endl;
-      // max_w_vec.push_back(*std::max_element(w_vec.begin(), w_vec.end()));
-    }
-    
-    const double sum = std::accumulate(max_w_vec.begin(), max_w_vec.end(), 0.0);
-    for(auto& i:max_w_vec){
-      i /= sum;
-      std::cout << i << ",";
-    }
-    std::cout << std::endl;
-    
-    idx = std::vector<int>(max_w_vec.size(), 0);
-    std::iota(idx.begin(), idx.end(), 0);
-
-    std::sort(
-      idx.begin(),
-      idx.end(),
-      [&](int x, int y){return max_w_vec[x] > max_w_vec[y];}
-    );
-
-    double w_cnt = 0.0;
-    int k=0;
-    std::vector<pf_t*> pf_vector_current;
-    while(k<pf_vector_size_){
-      if(idx[k]>pf_vector_size_){
-        break;
-      }
-      w_cnt += max_w_vec[idx[k]];
-      if(w_cnt <= 0.8){
-        for(int j=0; j<std::round(pf_vector_size_ * max_w_vec[idx[k]]); j++){
-          pf_vector_current.push_back(pf_vector_[idx[k]]);
-          if(idx[k]<pf_vector_size_) k++;
-        }
-      }
-      else{
-        pf_vector_current.push_back(pf_vector_[idx[k]]);
-        pf_vector_current[k]->alpha = rand_alpha_(mt_);
-        if(idx[k]<pf_vector_size_) k++;
-      }
-      std::cout << k;
-      ROS_INFO("%d, %lf, %lf", idx[k-1], max_w_vec[idx[k-1]], pf_vector_current[k-1]->alpha);
-      // k++;
-    }
-    std::cout << std::endl; 
-
-    pf_vector_ = pf_vector_current;
-    auto d = std::chrono::system_clock::now() - start;
-    std::cout << std::chrono::duration<double>(d).count() << std::endl;
-  }
 
   if (resampled || force_publication)
   {
@@ -1558,27 +1560,54 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
     double max_weight = 0.0;
     int max_weight_hyp = -1;
     std::vector<amcl_hyp_t> hyps;
-    hyps.resize(pf_vector_[idx[0]]->sets[pf_vector_[idx[0]]->current_set].cluster_count);
-    for (int hyp_count = 0;
-         hyp_count < pf_vector_[idx[0]]->sets[pf_vector_[idx[0]]->current_set].cluster_count; hyp_count++)
-    {
-      double weight;
-      pf_vector_t pose_mean;
-      pf_matrix_t pose_cov;
-      if (!pf_get_cluster_stats(pf_vector_[idx[0]], hyp_count, &weight, &pose_mean, &pose_cov))
+    if(multi_mcl_){
+      hyps.resize(pf_vector_[idx[0]]->sets[pf_vector_[idx[0]]->current_set].cluster_count);
+      for (int hyp_count = 0;
+           hyp_count < pf_vector_[idx[0]]->sets[pf_vector_[idx[0]]->current_set].cluster_count; hyp_count++)
       {
-        ROS_ERROR("Couldn't get stats on cluster %d", hyp_count);
-        break;
+        double weight;
+        pf_vector_t pose_mean;
+        pf_matrix_t pose_cov;
+        if (!pf_get_cluster_stats(pf_vector_[idx[0]], hyp_count, &weight, &pose_mean, &pose_cov))
+        {
+          ROS_ERROR("Couldn't get stats on cluster %d", hyp_count);
+          break;
+        }
+  
+        hyps[hyp_count].weight = weight;
+        hyps[hyp_count].pf_pose_mean = pose_mean;
+        hyps[hyp_count].pf_pose_cov = pose_cov;
+  
+        if (hyps[hyp_count].weight > max_weight)
+        {
+          max_weight = hyps[hyp_count].weight;
+          max_weight_hyp = hyp_count;
+        }
       }
-
-      hyps[hyp_count].weight = weight;
-      hyps[hyp_count].pf_pose_mean = pose_mean;
-      hyps[hyp_count].pf_pose_cov = pose_cov;
-
-      if (hyps[hyp_count].weight > max_weight)
+    }
+    else{
+      hyps.resize(pf_->sets[pf_->current_set].cluster_count);
+      for (int hyp_count = 0;
+           hyp_count < pf_->sets[pf_->current_set].cluster_count; hyp_count++)
       {
-        max_weight = hyps[hyp_count].weight;
-        max_weight_hyp = hyp_count;
+        double weight;
+        pf_vector_t pose_mean;
+        pf_matrix_t pose_cov;
+        if (!pf_get_cluster_stats(pf_, hyp_count, &weight, &pose_mean, &pose_cov))
+        {
+          ROS_ERROR("Couldn't get stats on cluster %d", hyp_count);
+          break;
+        }
+  
+        hyps[hyp_count].weight = weight;
+        hyps[hyp_count].pf_pose_mean = pose_mean;
+        hyps[hyp_count].pf_pose_cov = pose_cov;
+  
+        if (hyps[hyp_count].weight > max_weight)
+        {
+          max_weight = hyps[hyp_count].weight;
+          max_weight_hyp = hyp_count;
+        }
       }
     }
 
