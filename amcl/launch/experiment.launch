@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+
+<launch>
+    <include file="$(find orne_bringup)/launch/orne_alpha_sim.launch"/>
+    <include file="$(find icart_mini_driver)/launch/teleop_joy.launch"/>
+    <node pkg="map_server" type="map_server" name="lmap_server" args="$(find amcl)/maps/willow_full.yaml"/>
+    <node pkg="map_server" type="map_server" name="cmap_server" args="$(find amcl)/maps/willow_cost.yaml">
+        <remap from="/map" to="/costmap"/>
+    </node>
+    <node pkg="rviz" type="rviz" name="rviz" args="-d $(find amcl)/rviz_cfg/multi_amcl.rviz"/>
+</launch>
