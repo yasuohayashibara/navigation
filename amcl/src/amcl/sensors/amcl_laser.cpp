@@ -237,10 +237,9 @@ double AMCLLaser::LikelihoodFieldModel(AMCLLaserData *data, pf_sample_set_t* set
       cov(i,j) = set->cov.m[i][j];
     }
   }
-  Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 2, 2>> eigensolver(cov.topLeftCorner<2,2>(), false);
-  Eigen::MatrixXd eigenvalues = eigensolver.eigenvalues();
-  // std::cout << typeid(eigensolver.eigenvalues()).name() << std::endl;
-
+  // Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 2, 2>> eigensolver(cov.topLeftCorner<2,2>(), false);
+  // Eigen::MatrixXd eigenvalues = eigensolver.eigenvalues();
+  // std::cout << eigensolver.eigenvalues() << std::endl;
   // self->sigma_hit = eigenvalues.maxCoeff();
 
   // Compute the sample weights

@@ -179,6 +179,12 @@ private:
 
   double getYaw(tf::Pose &t);
 
+  void createWeightVec(std::vector<double>& max_w_vec);
+  void createWSumVec(std::vector<double>& max_w_vec);
+  void createMeanPosVec(std::vector<double>& mean_pos_vec, int axis);
+  double calcMean(std::vector<double>& vec);
+  double calcSigma(std::vector<double>& vec, double mean);
+
   //parameter for what odom to use
   std::string odom_frame_id_;
 
@@ -1209,6 +1215,49 @@ bool AmclNode::setResetFlagCallback(std_srvs::SetBool::Request &req,
   return true;
 }
 
+void AmclNode::createWeightVec(std::vector<double>& max_w_vec)
+{
+  for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){ 
+    pf_sample_set_t *set;
+    set = (*itr)->sets + ((*itr)->current_set + 1) % 2;
+    std::vector<double> w_vec;
+    for(int i=0; i<set->sample_count; i++){
+      pf_sample_t *sample;
+      sample = set->samples + i;
+      w_vec.push_back(sample->weight);
+    }
+    std::cout << set->sample_count << "," << *std::max_element(w_vec.begin(), w_vec.end()) << std::endl;
+    max_w_vec.push_back(*std::max_element(w_vec.begin(), w_vec.end()));
+  }
+}
+
+void AmclNode::createWSumVec(std::vector<double>& max_w_vec)
+{
+  for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){ 
+    max_w_vec.push_back((*itr)->w_sum);
+  }
+}
+
+void AmclNode::createMeanPosVec(std::vector<double>& mean_pos_vec, int axis)
+{
+  if(axis>2) return;
+  for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
+    pf_sample_set_t *set;
+    set = (*itr)->sets + ((*itr)->current_set + 1) % 2;
+    mean_pos_vec.push_back(set->mean.v[axis]);
+  }
+}
+
+double AmclNode::calcMean(std::vector<double>& vec)
+{
+  return std::accumulate(vec.begin(), vec.end(), 0.0) / vec.size();
+}
+
+double AmclNode::calcSigma(std::vector<double>& vec, double mean)
+{
+  return (std::inner_product(vec.begin(), vec.end(), vec.begin(), 0.0) - mean * mean * vec.size())/ (vec.size() - 1.0);
+}
+
 void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
 {
   last_laser_received_ts_ = ros::Time::now();
@@ -1413,20 +1462,21 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
     if(multi_mcl_){
       auto start = std::chrono::system_clock::now();
       std::vector<double> max_w_vec;
-      for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){ 
-        pf_sample_set_t *set;
-        set = (*itr)->sets + ((*itr)->current_set + 1) % 2;
-        std::vector<double> w_vec;
-        for(int i=0; i<set->sample_count; i++){
-          pf_sample_t *sample;
-          sample = set->samples + i;
-          w_vec.push_back(sample->weight);
-        }
-        max_w_vec.push_back((*itr)->w_sum) ;
-        std::cout << max_w_vec.size() << "," << (*itr)->w_sum << std::endl;
-        // std::cout << set->sample_count << "," << *std::max_element(w_vec.begin(), w_vec.end()) << std::endl;
-        // max_w_vec.push_back(*std::max_element(w_vec.begin(), w_vec.end()));
-      }
+      std::vector<double> mean_pos_x;
+      std::vector<double> mean_pos_y;
+      // createWeightVec(max_w_vec);
+      createWSumVec(max_w_vec);
+      createMeanPosVec(mean_pos_x, 0);
+      createMeanPosVec(mean_pos_y, 1);
+      
+      double x_mean = 0.0, y_mean = 0.0, x_var = 0.0, y_var = 0.0, x_dev = 0.0, y_dev = 0.0;
+      x_mean = calcMean(mean_pos_x);
+      y_mean = calcMean(mean_pos_y);
+      x_var = calcSigma(mean_pos_x, x_mean);
+      y_var = calcSigma(mean_pos_y, y_mean);
+      x_dev = std::sqrt(x_var);
+      y_dev = std::sqrt(y_var);
+      ROS_INFO("x_mean: %lf, y_mean: %lf, x_var: %lf, y_var: %lf, x_dev: %lf, y_dev: %lf", x_mean, y_mean, x_var, y_var, x_dev, y_dev);
       
       const double sum = std::accumulate(max_w_vec.begin(), max_w_vec.end(), 0.0);
       for(auto& i:max_w_vec){
@@ -1458,16 +1508,55 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
           pf_vector_current[k]->alpha = rand_alpha_(mt_);
         }
         w_cnt += max_w_vec[idx[k]];
-        ROS_INFO("%d, %lf, %d, %lf, %lf",k ,w_cnt, idx[k], max_w_vec[idx[k]], pf_vector_current[k]->alpha);
+        double dist = std::sqrt(std::pow((x_mean - mean_pos_x[k]) + (y_mean - mean_pos_y[k]), 2.0));
+        ROS_INFO("%d, %lf, %d, %lf, %lf, %lf, %lf, %lf"
+          ,k 
+          ,w_cnt
+          ,idx[k]
+          ,max_w_vec[idx[k]]
+          ,pf_vector_current[k]->alpha
+          ,std::abs(x_mean - mean_pos_x[idx[k]])
+          ,std::abs(y_mean - mean_pos_y[idx[k]])
+          ,dist
+        );
       }
       std::cout << std::endl; 
       pf_vector_ = pf_vector_current;
+
+      mean_pos_x.erase(mean_pos_x.begin(), mean_pos_x.end());
+      mean_pos_y.erase(mean_pos_y.begin(), mean_pos_y.end());
+      createMeanPosVec(mean_pos_x, 0);
+      createMeanPosVec(mean_pos_y, 1);
+
+      x_mean = calcMean(mean_pos_x);
+      y_mean = calcMean(mean_pos_y);
+      x_var = calcSigma(mean_pos_x, x_mean);
+      y_var = calcSigma(mean_pos_y, y_mean);
+      x_dev = std::sqrt(x_var);
+      y_dev = std::sqrt(y_var);
+
+      for(auto itr=pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
+        int index = itr - pf_vector_.begin();
+        double dist = std::sqrt(std::pow((x_mean - mean_pos_x[index]) + (y_mean - mean_pos_y[index]), 2.0));
+        std::cout << dist << ", ";
+        if(x_dev > 5.0 &&(dist > x_dev || dist > y_dev*2)){
+          pf_sample_set_t *set;
+          set = (*itr)->sets + ((*itr)->current_set + 1) % 2;
+          pf_vector_t mean = pf_vector_zero();
+          mean.v[0] = x_mean;
+          mean.v[1] = y_mean;
+          pf_init(*itr, mean, set->cov);
+        }
+      }
+      std::cout << std::endl;
+
       auto d = std::chrono::system_clock::now() - start;
+      
+      for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
+        pf_expansion_reset(*itr);
+      }
     }
 
-    for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
-      pf_expansion_reset(*itr);
-    }
     pf_expansion_reset(pf_);
 
     if (pf_->is_done_reset)
