@@ -1459,30 +1459,41 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
     }
     lasers_[laser_index]->UpdateSensor(pf_, (AMCLSensorData *)&ldata);
     
+    // ここから複数MCLの重み付け，リサンプリング計算
     if(multi_mcl_){
-      auto start = std::chrono::system_clock::now();
+      // auto start = std::chrono::system_clock::now();
+
+      //max_w_vecは各MCLに対する重みのvector
+      //w_sum_vec = (w_sum_1, w_sum_2, ..., w_sum_(pf_vector_size)) 
       std::vector<double> max_w_vec;
       std::vector<double> mean_pos_x;
       std::vector<double> mean_pos_y;
+
+      // createWeightVecは各MCLの最尤なパーティクルの重みのvectorを生成する
       // createWeightVec(max_w_vec);
+      // createWSumVecは各MCLの重みの合計のvectorを生成する
       createWSumVec(max_w_vec);
-      createMeanPosVec(mean_pos_x, 0);
-      createMeanPosVec(mean_pos_y, 1);
+
+      //各パーティクルの平均位置をvectorにする
+      // createMeanPosVec(mean_pos_x, 0);
+      // createMeanPosVec(mean_pos_y, 1);
       
-      double x_mean = 0.0, y_mean = 0.0, x_var = 0.0, y_var = 0.0, x_dev = 0.0, y_dev = 0.0;
-      x_mean = calcMean(mean_pos_x);
-      y_mean = calcMean(mean_pos_y);
-      x_var = calcSigma(mean_pos_x, x_mean);
-      y_var = calcSigma(mean_pos_y, y_mean);
-      x_dev = std::sqrt(x_var);
-      y_dev = std::sqrt(y_var);
-      ROS_INFO("x_mean: %lf, y_mean: %lf, x_var: %lf, y_var: %lf, x_dev: %lf, y_dev: %lf", x_mean, y_mean, x_var, y_var, x_dev, y_dev);
+      // double x_mean = 0.0, y_mean = 0.0, x_var = 0.0, y_var = 0.0, x_dev = 0.0, y_dev = 0.0;
+      // x_mean = calcMean(mean_pos_x);
+      // y_mean = calcMean(mean_pos_y);
+      // x_var = calcSigma(mean_pos_x, x_mean);
+      // y_var = calcSigma(mean_pos_y, y_mean);
+      // x_dev = std::sqrt(x_var);
+      // y_dev = std::sqrt(y_var);
+      // ROS_INFO("x_mean: %lf, y_mean: %lf, x_var: %lf, y_var: %lf, x_dev: %lf, y_dev: %lf", x_mean, y_mean, x_var, y_var, x_dev, y_dev);
       
+      // MCLの重みの正規化
       const double sum = std::accumulate(max_w_vec.begin(), max_w_vec.end(), 0.0);
       for(auto& i:max_w_vec){
         i /= sum;
       }
       
+      // MCLが持つ重みに従って添字vector idx(0, 1, ..., pf_vector_size)をソートする
       idx = std::vector<int>(max_w_vec.size(), 0);
       std::iota(idx.begin(), idx.end(), 0);
 
@@ -1495,6 +1506,7 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
       double w_cnt = 0.0;
       std::vector<pf_t*> pf_vector_current;
 
+      // 各MCLが持つ重みに従ってリサンプリング
       for(int k=0; k<pf_vector_size_; k++){
         if(w_cnt <= 0.8){
           pf_vector_current.push_back(pf_vector_[idx[k]]);
@@ -1508,49 +1520,50 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
           pf_vector_current[k]->alpha = rand_alpha_(mt_);
         }
         w_cnt += max_w_vec[idx[k]];
-        double dist = std::sqrt(std::pow((x_mean - mean_pos_x[k]) + (y_mean - mean_pos_y[k]), 2.0));
-        ROS_INFO("%d, %lf, %d, %lf, %lf, %lf, %lf, %lf"
+        // double dist = std::sqrt(std::pow((x_mean - mean_pos_x[k]) + (y_mean - mean_pos_y[k]), 2.0));
+        // 添字，重みの和，インデックス，重み，alpha_th，
+        ROS_INFO("%d, %lf, %d, %lf, %lf"/*, %lf, %lf, %lf"*/
           ,k 
           ,w_cnt
           ,idx[k]
           ,max_w_vec[idx[k]]
           ,pf_vector_current[k]->alpha
-          ,std::abs(x_mean - mean_pos_x[idx[k]])
-          ,std::abs(y_mean - mean_pos_y[idx[k]])
-          ,dist
+          // ,std::abs(x_mean - mean_pos_x[idx[k]])
+          // ,std::abs(y_mean - mean_pos_y[idx[k]])
+          // ,dist
         );
       }
       std::cout << std::endl; 
       pf_vector_ = pf_vector_current;
 
-      mean_pos_x.erase(mean_pos_x.begin(), mean_pos_x.end());
-      mean_pos_y.erase(mean_pos_y.begin(), mean_pos_y.end());
-      createMeanPosVec(mean_pos_x, 0);
-      createMeanPosVec(mean_pos_y, 1);
+      // mean_pos_x.erase(mean_pos_x.begin(), mean_pos_x.end());
+      // mean_pos_y.erase(mean_pos_y.begin(), mean_pos_y.end());
+      // createMeanPosVec(mean_pos_x, 0);
+      // createMeanPosVec(mean_pos_y, 1);
 
-      x_mean = calcMean(mean_pos_x);
-      y_mean = calcMean(mean_pos_y);
-      x_var = calcSigma(mean_pos_x, x_mean);
-      y_var = calcSigma(mean_pos_y, y_mean);
-      x_dev = std::sqrt(x_var);
-      y_dev = std::sqrt(y_var);
+      // x_mean = calcMean(mean_pos_x);
+      // y_mean = calcMean(mean_pos_y);
+      // x_var = calcSigma(mean_pos_x, x_mean);
+      // y_var = calcSigma(mean_pos_y, y_mean);
+      // x_dev = std::sqrt(x_var);
+      // y_dev = std::sqrt(y_var);
 
-      for(auto itr=pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
-        int index = itr - pf_vector_.begin();
-        double dist = std::sqrt(std::pow((x_mean - mean_pos_x[index]) + (y_mean - mean_pos_y[index]), 2.0));
-        std::cout << dist << ", ";
-        if(x_dev > 5.0 &&(dist > x_dev || dist > y_dev*2)){
-          pf_sample_set_t *set;
-          set = (*itr)->sets + ((*itr)->current_set + 1) % 2;
-          pf_vector_t mean = pf_vector_zero();
-          mean.v[0] = x_mean;
-          mean.v[1] = y_mean;
-          pf_init(*itr, mean, set->cov);
-        }
-      }
-      std::cout << std::endl;
+      // for(auto itr=pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
+      //   int index = itr - pf_vector_.begin();
+      //   double dist = std::sqrt(std::pow((x_mean - mean_pos_x[index]) + (y_mean - mean_pos_y[index]), 2.0));
+      //   std::cout << dist << ", ";
+      //   if(x_dev > 5.0 &&(dist > x_dev || dist > y_dev*2)){
+      //     pf_sample_set_t *set;
+      //     set = (*itr)->sets + ((*itr)->current_set + 1) % 2;
+      //     pf_vector_t mean = pf_vector_zero();
+      //     mean.v[0] = x_mean;
+      //     mean.v[1] = y_mean;
+      //     pf_init(*itr, mean, set->cov);
+      //   }
+      // }
+      // std::cout << std::endl;
 
-      auto d = std::chrono::system_clock::now() - start;
+      // auto d = std::chrono::system_clock::now() - start;
       
       for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
         pf_expansion_reset(*itr);
