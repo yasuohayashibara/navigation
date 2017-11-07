@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+
+<launch>
+  <arg name="robot_name"    default="alpha"/>
+
+  <group ns="multi_mcl">
+    <node pkg="amcl" type="amcl" name="amcl" output="screen">
+      <rosparam file="$(find amcl)/param/localization_params.yaml" command="load"/>
+      <remap from="scan" to="/scan"/>
+    </node>
+  </group>
+</launch>
