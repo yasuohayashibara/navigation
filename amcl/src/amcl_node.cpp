@@ -1566,7 +1566,7 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
       // auto d = std::chrono::system_clock::now() - start;
       
       for(auto itr = pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
-        pf_expansion_reset(*itr);
+        pf_expansion_reset_copy(pf_vector_[idx[0]], *itr);
       }
     }
 

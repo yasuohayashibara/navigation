@@ -167,6 +167,8 @@ void pf_update_sensor(pf_t *pf, pf_sensor_model_fn_t sensor_fn, void *sensor_dat
 
 void pf_expansion_reset(pf_t *pf);
 
+void pf_expansion_reset_copy(pf_t *pf_src, pf_t *pf_dist);
+
 // Resample the distribution
 void pf_update_resample(pf_t *pf);
 

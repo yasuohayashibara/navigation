@@ -407,6 +407,84 @@ void pf_expansion_reset(pf_t *pf)
   return;
 }
 
+void pf_expansion_reset_copy(pf_t *pf_src, pf_t *pf_dist)
+{
+  double beta = 1.0 - (pf_dist->w_sum / pf_dist->alpha);
+  if(beta > 0.0 && pf_dist->do_reset)
+  {
+    pf_sample_set_t *set_src, *set_dist;
+    pf_sample_t *sample_src, *sample_dist;
+    set_src = pf_src->sets + pf_src->current_set;
+    set_dist = pf_dist->sets + pf_dist->current_set;
+
+    double x_sum = 0.0, y_sum = 0.0, theta_sum = 0.0;
+    double x_sumv = 0.0, y_sumv = 0.0, theta_sumv = 0.0;
+    double x_v = 0.0, y_v = 0.0, theta_v = 0.0;
+    double v_limit = DBL_MAX;
+    int limit = 0;
+    int reset_limit = 0, reset_count = 0;
+
+    pf_dist->is_done_reset = true;
+
+    // pf_kdtree_clear(set->kdtree);
+    int i = 0;
+    for (i = 0; i < set_src->sample_count; i++)
+    {
+      sample_src = set_src->samples + i;
+      x_sum += sample_src->pose.v[0];
+      x_sumv += sample_src->pose.v[0] * sample_src->pose.v[0];
+      y_sum += sample_src->pose.v[1];
+      y_sumv += sample_src->pose.v[1] * sample_src->pose.v[1];
+      theta_sum += sample_src->pose.v[2];
+      theta_sumv += sample_src->pose.v[2] * sample_src->pose.v[2];
+    }
+
+    x_v = (x_sumv - (x_sum * x_sum / set_src->sample_count)) / set_src->sample_count;
+    y_v = (y_sumv - (y_sum * y_sum / set_src->sample_count)) / set_src->sample_count;
+    theta_v = (theta_sumv - (theta_sum * theta_sum / set_src->sample_count)) / set_src->sample_count;
+
+    //分散の制限(これがないとエラーを起こす), オーバーフロー防止
+    if(x_v >= v_limit){
+      x_v = v_limit;
+    }
+    if(x_v <= -v_limit){
+      x_v = -v_limit;
+    }
+    if(y_v >= v_limit){
+      y_v = v_limit;
+    }
+    if(y_v <= -v_limit){
+      y_v = -v_limit;
+    }
+    if(theta_v >= M_PI/2){
+      theta_v = M_PI/2;
+    }
+    if(theta_v <= -M_PI/2){
+      theta_v = -M_PI/2;
+    }
+
+    reset_limit = ((int)x_v + (int)y_v) / 2;
+
+    if(reset_count >= reset_limit){
+      for(i = 0; i < set_dist->sample_count; i++){
+        sample_src = set_src->samples + i;
+        sample_dist = set_dist->samples + i;
+        sample_dist->pose.v[0] = sample_src->pose.v[0] + (drand48() * 4 * x_v) - (2 * x_v);
+        sample_dist->pose.v[1] = sample_src->pose.v[1] + (drand48() * 4 * y_v) - (2 * y_v);
+        sample_dist->pose.v[2] = sample_src->pose.v[2] + (drand48() * 2 * theta_v) - (1 * theta_v);
+        sample_dist->weight = 1.0 / set_dist->sample_count;
+      }
+      reset_count = 0;
+    }
+    reset_count++;
+  }
+  else
+  {
+    pf_dist->is_done_reset = false;
+  }
+  return;
+}
+
 // Resample the distribution
 void pf_update_resample(pf_t *pf)
 {
