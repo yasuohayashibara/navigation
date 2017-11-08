@@ -56,6 +56,7 @@
 #include "nav_msgs/SetMap.h"
 #include "std_msgs/Bool.h"
 #include "std_msgs/Float64.h"
+#include "std_msgs/Float64MultiArray.h"
 #include "std_srvs/Empty.h"
 #include "std_srvs/SetBool.h"
 
@@ -271,8 +272,9 @@ private:
   ros::Subscriber map_sub_;
 
   std::vector<ros::Publisher> particlecloud_pub_vec_;
+  ros::Publisher alpha_pub_vec_;
   std::vector<ros::Publisher> reset_notify_pub_vec_;
-  std::vector<ros::Publisher> w_sum_pub_vec_;
+  ros::Publisher w_sum_pub_vec_;
 
   amcl_hyp_t *initial_pose_hyp_;
   bool first_map_received_;
@@ -402,7 +404,7 @@ AmclNode::AmclNode() : sent_first_transform_(false),
                        initial_pose_hyp_(NULL),
                        first_map_received_(false),
                        first_reconfigure_call_(true),
-                       pf_vector_size_(2),
+                       pf_vector_size_(10),
                        do_reset_(true)
 {
   boost::recursive_mutex::scoped_lock l(configuration_mutex_);
@@ -518,9 +520,10 @@ AmclNode::AmclNode() : sent_first_transform_(false),
 
   for(int i=0;i<pf_vector_size_;i++){
     particlecloud_pub_vec_.push_back(nh_.advertise<geometry_msgs::PoseArray>("particlecloud"+std::to_string(i), 2, true));
-    reset_notify_pub_vec_.push_back(reset_notify_pub_ = nh_.advertise<std_msgs::Bool>("reset_notify"+std::to_string(i), 2, true));
-    w_sum_pub_vec_.push_back(nh_.advertise<std_msgs::Float64>("w_sum"+std::to_string(i), 10, true));
+    reset_notify_pub_vec_.push_back(nh_.advertise<std_msgs::Bool>("reset_notify"+std::to_string(i), 2, true));
   }
+  w_sum_pub_vec_ = nh_.advertise<std_msgs::Float64MultiArray>("w_sum_vec", 10, true);
+  alpha_pub_vec_ = nh_.advertise<std_msgs::Float64MultiArray>("alpha_vec", 2, true);
 
   global_loc_srv_ = nh_.advertiseService("global_localization",
                                          &AmclNode::globalLocalizationCallback,
@@ -657,8 +660,8 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
     pf_vector_[i]->pop_err = pf_err_;
     pf_vector_[i]->pop_z = pf_z_;
   }
-  pf_vector_[0]->alpha =  0.0;
-  pf_vector_[1]->alpha = 10.0;
+//  pf_vector_[0]->alpha =  0.0;
+//  pf_vector_[1]->alpha = 10.0;
 
   pf_ = pf_alloc(min_particles_, max_particles_,
                  alpha_slow_, alpha_fast_,
@@ -973,8 +976,8 @@ void AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid &msg)
     pf_vector_[i]->pop_err = pf_err_;
     pf_vector_[i]->pop_z = pf_z_;
   }
-  pf_vector_[0]->alpha =  0.0;
-  pf_vector_[1]->alpha = 10.0;
+//  pf_vector_[0]->alpha =  0.0;
+//  pf_vector_[1]->alpha = 10.0;
 
   pf_ = pf_alloc(min_particles_, max_particles_,
                  alpha_slow_, alpha_fast_,
@@ -1522,8 +1525,8 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
           pf_vector_current.push_back(pf_vector_[idx[k]]);
           pf_vector_current[k]->alpha = rand_alpha_(mt_);
         }
-        if (k == 0) pf_vector_current[0]->alpha = 0.0;
-        if (k == 1) pf_vector_current[1]->alpha = 10.0;
+//        if (k == 0) pf_vector_current[0]->alpha = 0.0;
+//        if (k == 1) pf_vector_current[1]->alpha = 10.0;
         w_cnt += max_w_vec[idx[k]];
         // double dist = std::sqrt(std::pow((x_mean - mean_pos_x[k]) + (y_mean - mean_pos_y[k]), 2.0));
         // 添字，重みの和，インデックス，重み，alpha_th，
@@ -1587,20 +1590,24 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
     w_sum.data = pf_->w_sum;
     w_sum_pub_.publish(w_sum);
 
-    if(pub_cnt_ == 10){
+//    if(pub_cnt_ == 10){
+      std_msgs::Float64MultiArray alpha_vec;
+      std_msgs::Float64MultiArray w_sum_vec;      
       for(auto itr=pf_vector_.begin(); itr != pf_vector_.end(); ++itr){
         int itr_cnt = itr - pf_vector_.begin();
         if ((*itr)->is_done_reset)
         {
           std_msgs::Bool notify;
           notify.data = (*itr)->is_done_reset;
-          // reset_notify_pub_vec_[itr_cnt].publish(notify);
+          reset_notify_pub_vec_[itr_cnt].publish(notify);
         }
-        std_msgs::Float64 w_sum;
-        w_sum.data = (*itr)->w_sum;
-        // w_sum_pub_vec_[itr_cnt].publish(w_sum);
+        alpha_vec.data.push_back((*itr)->alpha);
+        w_sum_vec.data.push_back((*itr)->w_sum);
       }
-    }
+      alpha_pub_vec_.publish(alpha_vec);
+      w_sum_pub_vec_.publish(w_sum_vec);
+
+//    }
     w_sum_sum_ += pf_->w_sum;
 
     lasers_update_[laser_index] = false;
