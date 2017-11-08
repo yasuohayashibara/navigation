@@ -402,7 +402,7 @@ AmclNode::AmclNode() : sent_first_transform_(false),
                        initial_pose_hyp_(NULL),
                        first_map_received_(false),
                        first_reconfigure_call_(true),
-                       pf_vector_size_(10),
+                       pf_vector_size_(2),
                        do_reset_(true)
 {
   boost::recursive_mutex::scoped_lock l(configuration_mutex_);
@@ -657,7 +657,8 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
     pf_vector_[i]->pop_err = pf_err_;
     pf_vector_[i]->pop_z = pf_z_;
   }
-
+  pf_vector_[0]->alpha =  0.0;
+  pf_vector_[1]->alpha = 10.0;
 
   pf_ = pf_alloc(min_particles_, max_particles_,
                  alpha_slow_, alpha_fast_,
@@ -972,6 +973,8 @@ void AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid &msg)
     pf_vector_[i]->pop_err = pf_err_;
     pf_vector_[i]->pop_z = pf_z_;
   }
+  pf_vector_[0]->alpha =  0.0;
+  pf_vector_[1]->alpha = 10.0;
 
   pf_ = pf_alloc(min_particles_, max_particles_,
                  alpha_slow_, alpha_fast_,
@@ -1519,6 +1522,8 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
           pf_vector_current.push_back(pf_vector_[idx[k]]);
           pf_vector_current[k]->alpha = rand_alpha_(mt_);
         }
+        if (k == 0) pf_vector_current[0]->alpha = 0.0;
+        if (k == 1) pf_vector_current[1]->alpha = 10.0;
         w_cnt += max_w_vec[idx[k]];
         // double dist = std::sqrt(std::pow((x_mean - mean_pos_x[k]) + (y_mean - mean_pos_y[k]), 2.0));
         // 添字，重みの和，インデックス，重み，alpha_th，
@@ -1715,11 +1720,17 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
 
     if (max_weight > 0.0)
     {
-      ROS_DEBUG("Max weight pose: %.3f %.3f %.3f",
+//      ROS_DEBUG("Max weight pose: %.3f %.3f %.3f",
+//                hyps[max_weight_hyp].pf_pose_mean.v[0],
+//                hyps[max_weight_hyp].pf_pose_mean.v[1],
+//                hyps[max_weight_hyp].pf_pose_mean.v[2]);
+      ROS_INFO("Max weight pose: %d %d %.3f %.3f %.3f",
+                idx[0],
+                max_weight_hyp,
                 hyps[max_weight_hyp].pf_pose_mean.v[0],
                 hyps[max_weight_hyp].pf_pose_mean.v[1],
                 hyps[max_weight_hyp].pf_pose_mean.v[2]);
-
+  
       /*
          puts("");
          pf_matrix_fprintf(hyps[max_weight_hyp].pf_pose_cov, stdout, "%6.3f");
