@@ -110,16 +110,19 @@ AMCLOdom::SetModel( odom_model_t type,
 
 ////////////////////////////////////////////////////////////////////////////////
 // Apply the action model
-bool AMCLOdom::UpdateAction(pf_t *pf, AMCLSensorData *data)
+bool AMCLOdom::UpdateAction(pf_t *pf, AMCLSensorData *data, AMCLSensorData *data2)
 {
   AMCLOdomData *ndata;
+  AMCLOdomData *ndata2;
   ndata = (AMCLOdomData*) data;
+  ndata2 = (AMCLOdomData*) data2;
 
   // Compute the new sample poses
   pf_sample_set_t *set;
 
   set = pf->sets + pf->current_set;
   pf_vector_t old_pose = pf_vector_sub(ndata->pose, ndata->delta);
+  pf_vector_t old_pose2 = pf_vector_sub(ndata2->pose, ndata2->delta);
 
   switch( this->model_type )
   {

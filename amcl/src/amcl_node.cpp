@@ -169,9 +169,11 @@ class AmclNode
 
     //parameter for what odom to use
     std::string odom_frame_id_;
+    std::string odom2_frame_id_;
 
     //paramater to store latest odom pose
     tf::Stamped<tf::Pose> latest_odom_pose_;
+    tf::Stamped<tf::Pose> latest_odom2_pose_;
 
     //parameter for what base to use
     std::string base_frame_id_;
@@ -203,6 +205,7 @@ class AmclNode
     double pf_err_, pf_z_;
     bool pf_init_;
     pf_vector_t pf_odom_pose_;
+    pf_vector_t pf_odom2_pose_;
     double d_thresh_, a_thresh_;
     int resample_interval_;
     int resample_count_;
@@ -404,6 +407,7 @@ AmclNode::AmclNode() :
   private_nh_.param("update_min_d", d_thresh_, 0.2);
   private_nh_.param("update_min_a", a_thresh_, M_PI/6.0);
   private_nh_.param("odom_frame_id", odom_frame_id_, std::string("odom"));
+  private_nh_.param("odom2_frame_id", odom2_frame_id_, std::string("mea_odom"));
   private_nh_.param("base_frame_id", base_frame_id_, std::string("base_link"));
   private_nh_.param("global_frame_id", global_frame_id_, std::string("map"));
   private_nh_.param("resample_interval", resample_interval_, 2);
@@ -598,6 +602,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
   }
 
   odom_frame_id_ = config.odom_frame_id;
+  odom2_frame_id_ = config.odom2_frame_id;
   base_frame_id_ = config.base_frame_id;
   global_frame_id_ = config.global_frame_id;
 
@@ -1120,8 +1125,15 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
 
   // Where was the robot when this scan was taken?
   pf_vector_t pose;
+  pf_vector_t pose2;
   if(!getOdomPose(latest_odom_pose_, pose.v[0], pose.v[1], pose.v[2],
                   laser_scan->header.stamp, base_frame_id_))
+  {
+    ROS_ERROR("Couldn't determine robot's pose associated with laser scan");
+    return;
+  }
+  if(!getOdomPose(latest_odom2_pose_, pose2.v[0], pose2.v[1], pose2.v[2],
+                  laser_scan->header.stamp, odom2_frame_id_))
   {
     ROS_ERROR("Couldn't determine robot's pose associated with laser scan");
     return;
@@ -1129,6 +1141,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
 
 
   pf_vector_t delta = pf_vector_zero();
+  pf_vector_t delta2 = pf_vector_zero();
 
   if(pf_init_)
   {
@@ -1137,6 +1150,10 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     delta.v[0] = pose.v[0] - pf_odom_pose_.v[0];
     delta.v[1] = pose.v[1] - pf_odom_pose_.v[1];
     delta.v[2] = angle_diff(pose.v[2], pf_odom_pose_.v[2]);
+
+    delta2.v[0] = pose2.v[0] - pf_odom2_pose_.v[0];
+    delta2.v[1] = pose2.v[1] - pf_odom2_pose_.v[1];
+    delta2.v[2] = angle_diff(pose2.v[2], pf_odom2_pose_.v[2]);
 
     // See if we should update the filter
     bool update = fabs(delta.v[0]) > d_thresh_ ||
@@ -1156,6 +1173,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
   {
     // Pose at last filter update
     pf_odom_pose_ = pose;
+    pf_odom2_pose_ = pose2;	
 
     // Filter is now initialized
     pf_init_ = true;
@@ -1175,14 +1193,17 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     //pf_vector_fprintf(pose, stdout, "%.3f");
 
     AMCLOdomData odata;
+    AMCLOdomData odata2;
     odata.pose = pose;
+    odata2.pose = pose2;
     // HACK
     // Modify the delta in the action data so the filter gets
     // updated correctly
     odata.delta = delta;
+    odata2.delta = delta2;
 
     // Use the action data to update the filter
-    odom_->UpdateAction(pf_, (AMCLSensorData*)&odata);
+    odom_->UpdateAction(pf_, (AMCLSensorData*)&odata, (AMCLSensorData*)&odata2);
 
     // Pose at last filter update
     //this->pf_odom_pose = pose;
