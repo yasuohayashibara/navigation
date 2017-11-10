@@ -177,6 +177,7 @@ class AmclNode
 
     //parameter for what base to use
     std::string base_frame_id_;
+    std::string base2_frame_id_;
     std::string global_frame_id_;
 
     bool use_map_topic_;
@@ -229,7 +230,7 @@ class AmclNode
     // Helper to get odometric pose from transform system
     bool getOdomPose(tf::Stamped<tf::Pose>& pose,
                      double& x, double& y, double& yaw,
-                     const ros::Time& t, const std::string& f);
+                     const ros::Time& t, const std::string& f, std::string odom_frame_id);
 
     //time for tolerance on the published transform,
     //basically defines how long a map->odom transform is good for
@@ -409,6 +410,7 @@ AmclNode::AmclNode() :
   private_nh_.param("odom_frame_id", odom_frame_id_, std::string("odom"));
   private_nh_.param("odom2_frame_id", odom2_frame_id_, std::string("mea_odom"));
   private_nh_.param("base_frame_id", base_frame_id_, std::string("base_link"));
+  private_nh_.param("base2_frame_id", base2_frame_id_, std::string("base_link2"));
   private_nh_.param("global_frame_id", global_frame_id_, std::string("map"));
   private_nh_.param("resample_interval", resample_interval_, 2);
   double tmp_tol;
@@ -604,6 +606,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
   odom_frame_id_ = config.odom_frame_id;
   odom2_frame_id_ = config.odom2_frame_id;
   base_frame_id_ = config.base_frame_id;
+  base2_frame_id_ = config.base2_frame_id;
   global_frame_id_ = config.global_frame_id;
 
   delete laser_scan_filter_;
@@ -961,14 +964,14 @@ AmclNode::~AmclNode()
 bool
 AmclNode::getOdomPose(tf::Stamped<tf::Pose>& odom_pose,
                       double& x, double& y, double& yaw,
-                      const ros::Time& t, const std::string& f)
+                      const ros::Time& t, const std::string& f, std::string odom_frame_id)
 {
   // Get the robot's pose
   tf::Stamped<tf::Pose> ident (tf::Transform(tf::createIdentityQuaternion(),
                                            tf::Vector3(0,0,0)), t, f);
   try
   {
-    this->tf_->transformPose(odom_frame_id_, ident, odom_pose);
+    this->tf_->transformPose(odom_frame_id, ident, odom_pose);
   }
   catch(tf::TransformException e)
   {
@@ -1127,18 +1130,17 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
   pf_vector_t pose;
   pf_vector_t pose2;
   if(!getOdomPose(latest_odom_pose_, pose.v[0], pose.v[1], pose.v[2],
-                  laser_scan->header.stamp, base_frame_id_))
+                  laser_scan->header.stamp, base_frame_id_, odom_frame_id_))
   {
     ROS_ERROR("Couldn't determine robot's pose associated with laser scan");
     return;
   }
   if(!getOdomPose(latest_odom2_pose_, pose2.v[0], pose2.v[1], pose2.v[2],
-                  laser_scan->header.stamp, odom2_frame_id_))
+                  laser_scan->header.stamp, base2_frame_id_, odom2_frame_id_))
   {
     ROS_ERROR("Couldn't determine robot's pose associated with laser scan");
     return;
   }
-
 
   pf_vector_t delta = pf_vector_zero();
   pf_vector_t delta2 = pf_vector_zero();
