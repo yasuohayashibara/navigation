@@ -63,6 +63,7 @@ typedef struct
 
   // Weight for this pose
   double weight;
+  double integrated_weight;
 
 } pf_sample_t;
 
@@ -75,6 +76,7 @@ typedef struct
 
   // Total weight of samples in this cluster
   double weight;
+  double integrated_weight;
 
   // Cluster statistics
   pf_vector_t mean;
@@ -178,7 +180,7 @@ void pf_get_cep_stats(pf_t *pf, pf_vector_t *mean, double *var);
 // Compute the statistics for a particular cluster.  Returns 0 if
 // there is no such cluster.
 int pf_get_cluster_stats(pf_t *pf, int cluster, double *weight,
-                         pf_vector_t *mean, pf_matrix_t *cov);
+                         double *integrated_weight, pf_vector_t *mean, pf_matrix_t *cov);
 
 // Display the sample set
 void pf_draw_samples(pf_t *pf, struct _rtk_fig_t *fig, int max_samples);

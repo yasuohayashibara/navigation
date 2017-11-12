@@ -660,8 +660,6 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
     pf_vector_[i]->pop_err = pf_err_;
     pf_vector_[i]->pop_z = pf_z_;
   }
-//  pf_vector_[0]->alpha =  0.0;
-//  pf_vector_[1]->alpha = 10.0;
 
   pf_ = pf_alloc(min_particles_, max_particles_,
                  alpha_slow_, alpha_fast_,
@@ -976,8 +974,6 @@ void AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid &msg)
     pf_vector_[i]->pop_err = pf_err_;
     pf_vector_[i]->pop_z = pf_z_;
   }
-//  pf_vector_[0]->alpha =  0.0;
-//  pf_vector_[1]->alpha = 10.0;
 
   pf_ = pf_alloc(min_particles_, max_particles_,
                  alpha_slow_, alpha_fast_,
@@ -1326,6 +1322,8 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
     ROS_ERROR("Couldn't determine robot's pose associated with laser scan");
     return;
   }
+//  pose.v[0] *= 0.8;
+//  pose.v[1] *= 0.8;
 
   pf_vector_t delta = pf_vector_zero();
 
@@ -1680,9 +1678,10 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
            hyp_count < pf_vector_[idx[0]]->sets[pf_vector_[idx[0]]->current_set].cluster_count; hyp_count++)
       {
         double weight;
+        double integrated_weight;
         pf_vector_t pose_mean;
         pf_matrix_t pose_cov;
-        if (!pf_get_cluster_stats(pf_vector_[idx[0]], hyp_count, &weight, &pose_mean, &pose_cov))
+        if (!pf_get_cluster_stats(pf_vector_[idx[0]], hyp_count, &weight, &integrated_weight, &pose_mean, &pose_cov))
         {
           ROS_ERROR("Couldn't get stats on cluster %d", hyp_count);
           break;
@@ -1705,9 +1704,10 @@ void AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr &laser_scan)
            hyp_count < pf_->sets[pf_->current_set].cluster_count; hyp_count++)
       {
         double weight;
+        double integrated_weight;
         pf_vector_t pose_mean;
         pf_matrix_t pose_cov;
-        if (!pf_get_cluster_stats(pf_, hyp_count, &weight, &pose_mean, &pose_cov))
+        if (!pf_get_cluster_stats(pf_, hyp_count, &weight, &integrated_weight, &pose_mean, &pose_cov))
         {
           ROS_ERROR("Couldn't get stats on cluster %d", hyp_count);
           break;

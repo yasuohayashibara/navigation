@@ -88,6 +88,7 @@ pf_t *pf_alloc(int min_samples, int max_samples,
       sample->pose.v[1] = 0.0;
       sample->pose.v[2] = 0.0;
       sample->weight = 1.0 / max_samples;
+      sample->integrated_weight = 1.0 / max_samples;
     }
 
     // HACK: is 3 times max_samples enough?
@@ -164,6 +165,7 @@ void pf_init(pf_t *pf, pf_vector_t mean, pf_matrix_t cov)
   {
     sample = set->samples + i;
     sample->weight = 1.0 / pf->max_samples;
+    sample->integrated_weight = 1.0 / pf->max_samples;
     sample->pose = pf_pdf_gaussian_sample(pdf);
 
     // Add sample to histogram
@@ -203,6 +205,7 @@ void pf_init_model(pf_t *pf, pf_init_model_fn_t init_fn, void *init_data)
   {
     sample = set->samples + i;
     sample->weight = 1.0 / pf->max_samples;
+    sample->integrated_weight = 1.0 / pf->max_samples;
     sample->pose = (*init_fn) (init_data);
 
     // Add sample to histogram
@@ -272,7 +275,6 @@ void pf_update_action(pf_t *pf, pf_action_model_fn_t action_fn, void *action_dat
   return;
 }
 
-
 #include <float.h>
 // Update the filter with some new sensor observation
 void pf_update_sensor(pf_t *pf, pf_sensor_model_fn_t sensor_fn, void *sensor_data)
@@ -325,6 +327,7 @@ void pf_update_sensor(pf_t *pf, pf_sensor_model_fn_t sensor_fn, void *sensor_dat
     {
       sample = set->samples + i;
       sample->weight = 1.0 / set->sample_count;
+      sample->integrated_weight = 1.0 / set->sample_count;
     }
   }
 
@@ -395,6 +398,7 @@ void pf_expansion_reset(pf_t *pf)
         sample->pose.v[1] += (drand48() * 4 * y_v) - (2 * y_v);
         sample->pose.v[2] += (drand48() * 2 * theta_v) - (1 * theta_v);
         sample->weight = 1.0 / set->sample_count;
+        sample->integrated_weight = 1.0 / set->sample_count;
       }
       reset_count = 0;
     }
@@ -473,6 +477,7 @@ void pf_expansion_reset_copy(pf_t *pf_src, pf_t *pf_dist)
         sample_dist->pose.v[1] = sample_src->pose.v[1] + (drand48() * 4 * y_v) - (2 * y_v);
         sample_dist->pose.v[2] = sample_src->pose.v[2] + (drand48() * 2 * theta_v) - (1 * theta_v);
         sample_dist->weight = 1.0 / set_dist->sample_count;
+        sample_dist->integrated_weight = 1.0 / set_dist->sample_count;
       }
       reset_count = 0;
     }
@@ -816,7 +821,7 @@ void pf_get_cep_stats(pf_t *pf, pf_vector_t *mean, double *var)
 
 // Get the statistics for a particular cluster.
 int pf_get_cluster_stats(pf_t *pf, int clabel, double *weight,
-                         pf_vector_t *mean, pf_matrix_t *cov)
+                         double *integrated_weight, pf_vector_t *mean, pf_matrix_t *cov)
 {
   pf_sample_set_t *set;
   pf_cluster_t *cluster;
@@ -828,6 +833,7 @@ int pf_get_cluster_stats(pf_t *pf, int clabel, double *weight,
   cluster = set->clusters + clabel;
 
   *weight = cluster->weight;
+  *integrated_weight = cluster->integrated_weight;
   *mean = cluster->mean;
   *cov = cluster->cov;
 
